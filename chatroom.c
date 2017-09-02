@@ -11,6 +11,7 @@
 
 struct chatroom_process {
         char handle[HANDLE_SIZE];
+        pid_t pid;
         unsigned long timestamp;
         struct list_head list;
 };
@@ -18,7 +19,7 @@ struct chatroom_process init_process;
 struct chatroom_process *tmp_process;
 
 struct chatroom_message {
-        char message[128];
+        char message[MESSAGE_SIZE];
         char handle[HANDLE_SIZE];
         unsigned long timestamp;
         struct list_head list;
@@ -27,6 +28,8 @@ struct chatroom_message init_message;
 struct chatroom_message *tmp_message;
 
 struct list_head *pos, *next;
+
+atomic_t processes_online;
 
 
 static int chatroom_open(struct inode *inode, struct file *file)
@@ -57,8 +60,29 @@ static ssize_t chatroom_write(struct file *filp,
                                 size_t length,
                                 loff_t *offset)
 {
-        printk(KERN_INFO "Not supported write\n");
-        return -EINVAL;
+        /*printk(KERN_INFO "Not supported write\n");*/
+        /*return -EINVAL;*/
+        int flag = 0;
+        list_for_each(pos, &init_process.list) {
+                tmp_process = list_entry(pos, struct chatroom_process, list);
+                if (current->pid == tmp_process->pid) {
+                        flag = 1;
+                        break;
+                }
+        }
+        if (!flag) {
+                printk(KERN_INFO "Process is not logged in\n");
+                return -EINVAL;
+        }
+        tmp_message = (struct chatroom_message *)kmalloc(sizeof(struct chatroom_message), GFP_KERNEL);
+        memset(tmp_message->message, 0, MESSAGE_SIZE);
+        if (length > MESSAGE_SIZE)
+                length = MESSAGE_SIZE;
+        copy_from_user(tmp_message->message, buff, length);
+        strncpy(tmp_message->handle, tmp_process->handle, HANDLE_SIZE);
+        tmp_message->timestamp = jiffies;
+        list_add_tail(&(tmp_message->list), &(init_message.list)); // Implement Queue
+        return length;
 }
 
 static long chatroom_ioctl(struct file *file,
@@ -66,6 +90,7 @@ static long chatroom_ioctl(struct file *file,
                             unsigned long arg)
 {
         int i = 0;
+        int flag = 0;
         char **tmp;
         int retval = -EINVAL;
         switch(ioctl_num){
@@ -80,20 +105,30 @@ static long chatroom_ioctl(struct file *file,
                         tmp_process = (struct chatroom_process *)kmalloc(sizeof(struct chatroom_process), GFP_KERNEL);
                         strncpy_from_user(tmp_process->handle, (char *)arg, 32);
                         tmp_process->timestamp = jiffies;
+                        tmp_process->pid = current->pid;
                         list_add(&(tmp_process->list), &(init_process.list));
                         retval = 0;
+                        atomic_inc(&processes_online);
                         printk(KERN_INFO "Login by handle %s\n", (char *)arg);
-                        printk(KERN_INFO "handle %s, timestamp %lu", tmp_process->handle, tmp_process->timestamp);
+                        printk(KERN_INFO "handle %s, timestamp %lu pid %d", tmp_process->handle, tmp_process->timestamp, tmp_process->pid);
                         break;
                 case IOCTL_LOGOUT:
                         list_for_each_safe(pos, next, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
                                 if (!strcmp(tmp_process->handle, (char *)arg)) {
+                                        flag = 1;
                                         list_del(pos);
                                         kfree(tmp_process);
+                                        break;
                                 }
                         }
+                        if (!flag) {
+                                printk(KERN_INFO "Process is not logged in\n");
+                                retval = 0;
+                                break;
+                        }
                         printk(KERN_INFO "Logout by handle %s\n", (char *)arg);
+                        atomic_dec(&processes_online);
                         retval = 0;
                         break;
                 case IOCTL_CHECKLOGIN:
@@ -133,6 +168,7 @@ int init_module(void)
         printk(KERN_INFO "I was assigned major number %d. To talk to\n", DEV_MAJOR);
         printk(KERN_INFO "'mknod /dev/%s c %d 0'.\n", DEVNAME, DEV_MAJOR);
 
+        atomic_set(&processes_online, 0);
         INIT_LIST_HEAD(&init_process.list);
         INIT_LIST_HEAD(&init_message.list);
 

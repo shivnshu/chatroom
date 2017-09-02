@@ -19,28 +19,13 @@ int main()
                 exit(-1);
         }
         
-        strcpy(handle, "a");
-        if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
-                perror("ioctl");
-        }
-
-        strcpy(handle, "b");
-        if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
-                perror("ioctl");
-        }
-
-        strcpy(handle, "c");
-        if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
-                perror("ioctl");
-        }
-
-        strcpy(handle, "d");
+        strcpy(handle, "process1");
         if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
                 perror("ioctl");
         }
 
 
-        if (ioctl(fd, IOCTL_LOGOUT, "c") < 0) {
+        if (ioctl(fd, IOCTL_LOGOUT, "process1") < 0) {
                 perror("ioctl");
         }
 
