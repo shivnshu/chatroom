@@ -1,29 +1,57 @@
 #include<stdio.h>
+#include<unistd.h>
 #include<stdlib.h>
 #include<sys/fcntl.h>
 #include<sys/ioctl.h>
+#include<string.h>
 
 #include "chatroom.h"
+
+char handles[MAX_ONLINE_PROCESSES][HANDLE_SIZE];
 
 int main()
 {
         int i;
+        char handle[16];
         int fd = open("/dev/chatroom", O_RDWR);
         if (fd < 0) {
                 perror("open");
                 exit(-1);
         }
         
-        char handle[16] = {'a', 's', 'd', 'f'};
-
+        strcpy(handle, "a");
         if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
                 perror("ioctl");
         }
 
-        if (ioctl(fd, IOCTL_LOGOUT, handle) < 0) {
+        strcpy(handle, "b");
+        if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
                 perror("ioctl");
         }
 
+        strcpy(handle, "c");
+        if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
+                perror("ioctl");
+        }
+
+        strcpy(handle, "d");
+        if (ioctl(fd, IOCTL_LOGIN, handle) < 0) {
+                perror("ioctl");
+        }
+
+
+        if (ioctl(fd, IOCTL_LOGOUT, "c") < 0) {
+                perror("ioctl");
+        }
+
+        if (ioctl(fd, IOCTL_CHECKLOGIN, handles) < 0) {
+                perror("ioctl");
+        }
+
+        for (i=0;i<MAX_ONLINE_PROCESSES;++i) {
+                if (handles[i][0] != '\0')
+                        printf("%s\n", handles[i]);
+        }
  
         close(fd);
 

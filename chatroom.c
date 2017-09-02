@@ -3,16 +3,14 @@
 #include<linux/fs.h>
 #include<linux/list.h>
 #include<linux/slab.h>
+#include<linux/uaccess.h>
 
 #include "chatroom.h"
 
-#define MAX_ONLINE_PROCESSES 16
 #define DEVNAME "chatroom"
 
-char online_process_handles[MAX_ONLINE_PROCESSES*(33)];
-
 struct chatroom_process {
-        char handle[32];
+        char handle[HANDLE_SIZE];
         unsigned long timestamp;
         struct list_head list;
 };
@@ -21,7 +19,7 @@ struct chatroom_process *tmp_process;
 
 struct chatroom_message {
         char message[128];
-        char handle[32];
+        char handle[HANDLE_SIZE];
         unsigned long timestamp;
         struct list_head list;
 };
@@ -68,16 +66,24 @@ static long chatroom_ioctl(struct file *file,
                             unsigned long arg)
 {
         int i = 0;
+        char **tmp;
         int retval = -EINVAL;
         switch(ioctl_num){
                 case IOCTL_LOGIN:
+                        list_for_each(pos, &init_process.list) {
+                                tmp_process = list_entry(pos, struct chatroom_process, list);
+                                if (!strcmp(tmp_process->handle, (char*)arg)) {
+                                        printk(KERN_INFO "Handle with this name already exists\n");
+                                        return 0;
+                                }
+                        }
                         tmp_process = (struct chatroom_process *)kmalloc(sizeof(struct chatroom_process), GFP_KERNEL);
-                        strncpy(tmp_process->handle, (char *)arg, 32);
+                        strncpy_from_user(tmp_process->handle, (char *)arg, 32);
                         tmp_process->timestamp = jiffies;
                         list_add(&(tmp_process->list), &(init_process.list));
                         retval = 0;
                         printk(KERN_INFO "Login by handle %s\n", (char *)arg);
-                        printk(KERN_INFO "handle: %s, timestamp: %lu", tmp_process->handle, tmp_process->timestamp);
+                        printk(KERN_INFO "handle %s, timestamp %lu", tmp_process->handle, tmp_process->timestamp);
                         break;
                 case IOCTL_LOGOUT:
                         list_for_each_safe(pos, next, &init_process.list) {
@@ -91,15 +97,14 @@ static long chatroom_ioctl(struct file *file,
                         retval = 0;
                         break;
                 case IOCTL_CHECKLOGIN:
-                        /*list_for_each(pos, &init_process.list) {*/
-                                /*tmp_process = list_entry(pos, struct chatroom_process, list);*/
-                                /*strcpy((online_process_handles+i), tmp_process->handle);*/
-                                /*i += strlen(tmp_process->handle);*/
-                        /*}*/
-                        /*while (i < sizeof(online_process_handles))*/
-                                /*online_process_handles[i++] = '\0';*/
-                        /**((char **)(arg)) = &online_process_handles[0];*/
-                        /*retval = 0;*/
+                        tmp = (char **)arg;
+                        list_for_each(pos, &init_process.list) {
+                                tmp_process = list_entry(pos, struct chatroom_process, list);
+                                copy_to_user((char *)(tmp+i), tmp_process->handle, 32); 
+                                i += HANDLE_SIZE/sizeof(long);
+                                /*printk(KERN_INFO "process %s\n", tmp_process->handle);*/
+                        }
+                        retval = 0;
                         break;
                 default:
                         printk(KERN_INFO "Sorry, this ioctl operation is not supported\n");
