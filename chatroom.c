@@ -12,6 +12,7 @@
 struct chatroom_process {
         char handle[HANDLE_SIZE];
         pid_t pid;
+        unsigned long last_msg_read_timestamp;
         unsigned long timestamp;
         struct list_head list;
 };
@@ -51,8 +52,50 @@ static ssize_t chatroom_read(struct file *filp,
                               size_t length,
                               loff_t *offset)
 {
-        printk(KERN_INFO "Not supported read\n");
-        return -EINVAL;
+        int flag = 0;
+        list_for_each(pos, &init_process.list) {
+                tmp_process = list_entry(pos, struct chatroom_process, list);
+                if (current->pid == tmp_process->pid) {
+                        flag = 1;
+                        break;
+                }
+        }
+        if (!flag) {
+                printk(KERN_INFO "Process is not logged in\n");
+                return -EINVAL;
+        }
+        flag = 0;
+        list_for_each(pos, &init_message.list) {
+                tmp_message = list_entry(pos, struct chatroom_message, list);
+                if (tmp_message->timestamp > tmp_process->last_msg_read_timestamp) {
+                        tmp_process->last_msg_read_timestamp = tmp_message->timestamp;
+                        flag = 1;
+                        break;
+                }
+        }
+        if (!flag) {
+                printk(KERN_INFO "No message left to read by %s\n", tmp_process->handle);
+                return -EINVAL;
+        }
+        if (length > MESSAGE_SIZE)
+                length = MESSAGE_SIZE;
+        copy_to_user(buffer, tmp_message->message, length);
+
+        flag = 0;
+        pos = tmp_process->list.next;
+        if (pos != &init_process.list) {
+                tmp_process = list_entry(pos, struct chatroom_process, list);
+                if (tmp_process->timestamp >= tmp_message->timestamp)
+                        flag = 1;
+        }
+
+        if (flag) {
+                list_del(&tmp_message->list);
+                kfree(tmp_message);
+        }
+
+        return length;
+
 }
 
 static ssize_t chatroom_write(struct file *filp,
@@ -60,8 +103,6 @@ static ssize_t chatroom_write(struct file *filp,
                                 size_t length,
                                 loff_t *offset)
 {
-        /*printk(KERN_INFO "Not supported write\n");*/
-        /*return -EINVAL;*/
         int flag = 0;
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
@@ -105,8 +146,9 @@ static long chatroom_ioctl(struct file *file,
                         tmp_process = (struct chatroom_process *)kmalloc(sizeof(struct chatroom_process), GFP_KERNEL);
                         strncpy_from_user(tmp_process->handle, (char *)arg, 32);
                         tmp_process->timestamp = jiffies;
+                        tmp_process->last_msg_read_timestamp = jiffies;
                         tmp_process->pid = current->pid;
-                        list_add(&(tmp_process->list), &(init_process.list));
+                        list_add_tail(&(tmp_process->list), &(init_process.list));
                         retval = 0;
                         atomic_inc(&processes_online);
                         printk(KERN_INFO "Login by handle %s\n", (char *)arg);
