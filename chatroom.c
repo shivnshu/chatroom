@@ -89,7 +89,7 @@ static ssize_t chatroom_read(struct file *filp,
                         flag = 1;
         }
 
-        if (flag) {
+        if (flag || pos == &init_process.list) {
                 list_del(&tmp_message->list);
                 kfree(tmp_message);
         }
@@ -152,7 +152,7 @@ static long chatroom_ioctl(struct file *file,
                         retval = 0;
                         atomic_inc(&processes_online);
                         printk(KERN_INFO "Login by handle %s\n", (char *)arg);
-                        printk(KERN_INFO "handle %s, timestamp %lu pid %d", tmp_process->handle, tmp_process->timestamp, tmp_process->pid);
+                        /*printk(KERN_INFO "handle %s, timestamp %lu pid %d", tmp_process->handle, tmp_process->timestamp, tmp_process->pid);*/
                         break;
                 case IOCTL_LOGOUT:
                         list_for_each_safe(pos, next, &init_process.list) {
@@ -168,6 +168,13 @@ static long chatroom_ioctl(struct file *file,
                                 printk(KERN_INFO "Process is not logged in\n");
                                 retval = 0;
                                 break;
+                        }
+                        if (list_empty(&init_process.list)) {
+                                list_for_each_safe(pos, next, &init_message.list) {
+                                        tmp_message = list_entry(pos, struct chatroom_message, list);
+                                        list_del(pos);
+                                        kfree(tmp_message);
+                                }
                         }
                         printk(KERN_INFO "Logout by handle %s\n", (char *)arg);
                         atomic_dec(&processes_online);

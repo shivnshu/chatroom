@@ -7,10 +7,12 @@
 
 #include "chatroom.h"
 
+char buf[MESSAGE_SIZE];
+
 int main(int argc, char **argv)
 {
-        if (argc < 3) {
-                printf("Usage: ./bin <handle>  (login|logout)");
+        if (argc < 2) {
+                printf("Usage: ./bin <handle>");
                 return 0;
         }
         int i;
@@ -23,13 +25,16 @@ int main(int argc, char **argv)
 
         strncpy(handle, argv[1], 16);
 
-        if (!strcmp(argv[2], "login"))
-                ioctl(fd, IOCTL_LOGIN, handle);
+        ioctl(fd, IOCTL_LOGIN, handle);
 
-        else
-                ioctl(fd, IOCTL_LOGOUT, handle);
+        sleep(1);
+        write(fd, "asdfghjk\0", MESSAGE_SIZE);
+        sleep(1);
+        read(fd, buf, MESSAGE_SIZE);
+        printf("%s\n", buf);
 
+
+        ioctl(fd, IOCTL_LOGOUT, handle);
         close(fd);
         return 0;
 }
-
