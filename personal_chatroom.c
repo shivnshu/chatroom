@@ -12,17 +12,18 @@
 
 struct chatroom_process {
         char handle[HANDLE_SIZE];
-        pid_t pid;
         unsigned long last_msg_read_timestamp;
         unsigned long timestamp;
         struct list_head list;
 };
 struct chatroom_process init_process;
 struct chatroom_process *tmp_process;
+struct chatroom_process *tmp_toprocess;
 
 struct chatroom_message {
         char message[MESSAGE_SIZE];
-        char handle[HANDLE_SIZE];
+        char send_handle[HANDLE_SIZE];
+        char recv_handle[HANDLE_SIZE];
         unsigned long timestamp;
         struct list_head list;
 };
@@ -58,7 +59,7 @@ static ssize_t chatroom_read(struct file *filp,
         mutex_lock_interruptible(&process_buf_mutex);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (current->pid == tmp_process->pid) {
+                if (!strcmp(buffer, tmp_process->handle)) {
                         flag = 1;
                         break;
                 }
@@ -74,7 +75,7 @@ static ssize_t chatroom_read(struct file *filp,
         mutex_lock_interruptible(&message_buf_mutex);
         list_for_each(pos, &init_message.list) {
                 tmp_message = list_entry(pos, struct chatroom_message, list);
-                if (tmp_message->timestamp > tmp_process->last_msg_read_timestamp) {
+                if ((tmp_message->timestamp > tmp_process->last_msg_read_timestamp) && (!strcmp(tmp_message->recv_handle, tmp_process->handle))) {
                         tmp_process->last_msg_read_timestamp = tmp_message->timestamp;
                         flag = 1;
                         break;
@@ -86,9 +87,9 @@ static ssize_t chatroom_read(struct file *filp,
                 printk(KERN_INFO "No message left to read by %s\n", tmp_process->handle);
                 return -EINVAL;
         }
-        if (length > MESSAGE_SIZE)
-                length = MESSAGE_SIZE;
-        copy_to_user(buffer, tmp_message->message, length);
+        if (length > MESSAGE_SIZE+2*HANDLE_SIZE)
+                length = MESSAGE_SIZE+2*HANDLE_SIZE;
+        copy_to_user(buffer+2*HANDLE_SIZE, tmp_message->message, length-2*HANDLE_SIZE);
 
         flag = 0;
 
@@ -118,25 +119,36 @@ static ssize_t chatroom_write(struct file *filp,
                                 loff_t *offset)
 {
         int flag = 0;
+        int flag_if_toprocess_exist = 0;
         mutex_lock_interruptible(&process_buf_mutex);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (current->pid == tmp_process->pid) {
+                if (!strcmp(buff, tmp_process->handle)) {
                         flag = 1;
                         break;
                 }
+                if (!strcmp(buff+HANDLE_SIZE, tmp_process->handle)) {
+                        tmp_toprocess = tmp_process;
+                        flag_if_toprocess_exist = 1;
+                }
+
         }
         mutex_unlock(&process_buf_mutex);
         if (!flag) {
                 printk(KERN_INFO "Process is not logged in\n");
                 return -EINVAL;
         }
+        if (!flag_if_toprocess_exist) {
+                printk(KERN_INFO "Toprocess is not online\n");
+                return -EINVAL;
+        }
         tmp_message = (struct chatroom_message *)kmalloc(sizeof(struct chatroom_message), GFP_KERNEL);
         memset(tmp_message->message, 0, MESSAGE_SIZE);
-        if (length > MESSAGE_SIZE)
-                length = MESSAGE_SIZE;
-        copy_from_user(tmp_message->message, buff, length);
-        strncpy(tmp_message->handle, tmp_process->handle, HANDLE_SIZE);
+        if (length > MESSAGE_SIZE+2*HANDLE_SIZE)
+                length = MESSAGE_SIZE+2*HANDLE_SIZE;
+        copy_from_user(tmp_message->message, buff+2*HANDLE_SIZE, length-2*HANDLE_SIZE);
+        strncpy(tmp_message->send_handle, tmp_process->handle, HANDLE_SIZE);
+        strncpy(tmp_message->recv_handle, tmp_toprocess->handle, HANDLE_SIZE);
         tmp_message->timestamp = jiffies;
         mutex_lock_interruptible(&message_buf_mutex);
         list_add_tail(&(tmp_message->list), &(init_message.list)); // Implement Queue
@@ -172,13 +184,11 @@ static long chatroom_ioctl(struct file *file,
                         strncpy_from_user(tmp_process->handle, (char *)arg, HANDLE_SIZE);
                         tmp_process->timestamp = jiffies;
                         tmp_process->last_msg_read_timestamp = jiffies;
-                        tmp_process->pid = current->pid;
                         mutex_lock_interruptible(&process_buf_mutex);
                         list_add_tail(&(tmp_process->list), &(init_process.list));
                         mutex_unlock(&process_buf_mutex);
                         retval = 0;
                         printk(KERN_INFO "Login by handle %s\n", (char *)arg);
-                        /*printk(KERN_INFO "handle %s, timestamp %lu pid %d", tmp_process->handle, tmp_process->timestamp, tmp_process->pid);*/
                         break;
                 case IOCTL_LOGOUT:
                         mutex_lock_interruptible(&process_buf_mutex);
