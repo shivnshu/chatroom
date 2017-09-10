@@ -51,7 +51,7 @@ static ssize_t chatroom_read(struct file *filp,
         struct chatroom_message *tmp_message;
         struct list_head *pos;
         int flag = 0;
-        down_read(&process_sem);
+        down_write(&process_sem);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
                 if (!strcmp(buffer, tmp_process->handle)) {
@@ -62,12 +62,12 @@ static ssize_t chatroom_read(struct file *filp,
 
         if (!flag) {
                 printk(KERN_INFO "Process is not logged in\n");
-                up_read(&process_sem);
+                up_write(&process_sem);
                 return -EINVAL;
         }
         flag = 0;
 
-        down_read(&message_sem);
+        down_write(&message_sem);
         list_for_each(pos, &init_message.list) {
                 tmp_message = list_entry(pos, struct chatroom_message, list);
                 if (tmp_message->timestamp > tmp_process->last_msg_read_timestamp) {
@@ -77,9 +77,9 @@ static ssize_t chatroom_read(struct file *filp,
                 }
         }
 
+        up_write(&process_sem);
         if (!flag) {
-                up_read(&message_sem);
-                up_read(&process_sem);
+                up_write(&message_sem);
                 printk(KERN_INFO "No message left to read by %s\n", tmp_process->handle);
                 return -EINVAL;
         }
@@ -87,24 +87,25 @@ static ssize_t chatroom_read(struct file *filp,
                 length = MESSAGE_SIZE + HANDLE_SIZE;
         copy_to_user(buffer+HANDLE_SIZE, tmp_message->message, length - HANDLE_SIZE);
 
-        flag = 0;
 
-        pos = tmp_process->list.next;
-        if (pos != &init_process.list) {
+        flag = 1;
+
+        down_read(&process_sem);
+        list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (tmp_process->timestamp >= tmp_message->timestamp)
-                        flag = 1;
+                if (tmp_process->timestamp < tmp_message->timestamp && tmp_process->last_msg_read_timestamp < tmp_message->timestamp) {
+                        flag = 0;
+                        break;
+                }
         }
-
-        up_read(&message_sem);
         up_read(&process_sem);
-        if (flag || pos == &init_process.list) {
-                down_write(&message_sem);
+
+        if (flag) {
                 list_del(&tmp_message->list);
                 kfree(tmp_message);
-                up_write(&message_sem);
         }
 
+        up_write(&message_sem);
         return length;
 
 }
@@ -119,6 +120,7 @@ static ssize_t chatroom_write(struct file *filp,
         struct list_head *pos;
  
         int flag = 0;
+        down_read(&process_sem);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
                 if (!strcmp(buff, tmp_process->handle)) {
@@ -128,6 +130,7 @@ static ssize_t chatroom_write(struct file *filp,
         }
 
         if (!flag) {
+                up_read(&process_sem);
                 printk(KERN_INFO "Process is not logged in\n");
                 return -EINVAL;
         }
@@ -137,8 +140,11 @@ static ssize_t chatroom_write(struct file *filp,
                 length = MESSAGE_SIZE + HANDLE_SIZE;
         copy_from_user(tmp_message->message, buff + HANDLE_SIZE, length - HANDLE_SIZE);
         strncpy(tmp_message->handle, tmp_process->handle, HANDLE_SIZE);
+        up_read(&process_sem);
         tmp_message->timestamp = jiffies;
+        down_write(&message_sem);
         list_add_tail(&(tmp_message->list), &(init_message.list)); // Implement Queue
+        up_write(&message_sem);
         return length;
 }
 
@@ -157,6 +163,7 @@ static long chatroom_ioctl(struct file *file,
         int retval = -EINVAL;
         switch(ioctl_num){
                 case IOCTL_LOGIN:
+                        down_read(&process_sem);
                         list_for_each(pos, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
                                 if (!strcmp(tmp_process->handle, (char*)arg)) {
@@ -165,6 +172,7 @@ static long chatroom_ioctl(struct file *file,
                                         break;
                                 }
                         }
+                        up_read(&process_sem);
                         if (flag) {
                                 retval = 0;
                                 break;
@@ -173,11 +181,14 @@ static long chatroom_ioctl(struct file *file,
                         strncpy_from_user(tmp_process->handle, (char *)arg, HANDLE_SIZE);
                         tmp_process->timestamp = jiffies;
                         tmp_process->last_msg_read_timestamp = jiffies;
+                        down_write(&message_sem);
                         list_add_tail(&(tmp_process->list), &(init_process.list));
+                        up_write(&message_sem);
                         retval = 0;
                         printk(KERN_INFO "Login by handle %s\n", (char *)arg);
                         break;
                 case IOCTL_LOGOUT:
+                        down_write(&process_sem);
                         list_for_each_safe(pos, next, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
                                 if (!strcmp(tmp_process->handle, (char *)arg)) {
@@ -187,34 +198,43 @@ static long chatroom_ioctl(struct file *file,
                                         break;
                                 }
                         }
+                        up_write(&process_sem);
                         if (!flag) {
                                 printk(KERN_INFO "Process is not logged in\n");
                                 retval = 0;
                                 break;
                         }
+                        down_read(&process_sem);
                         if (list_empty(&init_process.list)) {
+                                down_write(&message_sem);
                                 list_for_each_safe(pos, next, &init_message.list) {
                                         tmp_message = list_entry(pos, struct chatroom_message, list);
                                         list_del(pos);
                                         kfree(tmp_message);
                                 }
+                                up_write(&message_sem);
                         }
+                        up_read(&process_sem);
                         printk(KERN_INFO "Logout by handle %s\n", (char *)arg);
                         retval = 0;
                         break;
                 case IOCTL_CHECKLOGIN:
                         tmp = (char **)arg;
+                        down_read(&process_sem);
                         list_for_each(pos, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
                                 copy_to_user((char *)(tmp+i), tmp_process->handle, 32); 
                                 i += HANDLE_SIZE/sizeof(long);
                         }
+                        up_read(&process_sem);
                         retval = 0;
                         break;
                 case IOCTL_NUMMSG:
+                        down_read(&message_sem);
                         list_for_each(pos, &init_message.list) {
                                 count++;
                         }
+                        up_read(&message_sem);
                         retval = count;
                         break;
                 default:
