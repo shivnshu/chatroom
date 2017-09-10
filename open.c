@@ -28,12 +28,12 @@ int main(int argc, char **argv)
 
         ioctl(fd, IOCTL_LOGIN, handle);
 
-        sleep(1);
-        strncpy(buf+HANDLE_SIZE, "asdfgh\n", MESSAGE_SIZE);
-        write(fd, buf, HANDLE_SIZE+MESSAGE_SIZE);
-        sleep(1);
-        read(fd, buf, HANDLE_SIZE+MESSAGE_SIZE);
-        printf("%s %s\n", buf, buf+HANDLE_SIZE);
+        sleep(5);
+        strncpy(buf + HANDLE_SIZE, "asdfgh", MESSAGE_SIZE);
+        write(fd, buf, HANDLE_SIZE + MESSAGE_SIZE);
+        sleep(5);
+        read(fd, buf, HANDLE_SIZE + MESSAGE_SIZE);
+        printf("%s %s\n", buf, buf + HANDLE_SIZE);
 
 
         ioctl(fd, IOCTL_LOGOUT, handle);

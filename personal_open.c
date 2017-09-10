@@ -40,10 +40,10 @@ int main(int argc, char **argv)
         ioctl(fd, IOCTL_LOGIN, handle);
 
         sleep(1);
-        strncpy(buf+2*HANDLE_SIZE, "asdfgh\0", MESSAGE_SIZE);
+        strncpy(buf+2*HANDLE_SIZE, "asdfgh", MESSAGE_SIZE);
         write(fd, buf, 2*HANDLE_SIZE+MESSAGE_SIZE);
         sleep(1);
-        strncpy(buf+2*HANDLE_SIZE, "\0", MESSAGE_SIZE);
+        strncpy(buf+2*HANDLE_SIZE, "", MESSAGE_SIZE);
         read(fd, buf, 2*HANDLE_SIZE+MESSAGE_SIZE);
         printf("%s %s %s\n", buf, buf+HANDLE_SIZE, buf+2*HANDLE_SIZE);
 
