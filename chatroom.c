@@ -93,7 +93,7 @@ static ssize_t chatroom_read(struct file *filp,
         down_read(&process_sem);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (tmp_process->timestamp < tmp_message->timestamp && tmp_process->last_msg_read_timestamp < tmp_message->timestamp) {
+                if (tmp_process->last_msg_read_timestamp < tmp_message->timestamp) {
                         flag = 0;
                         break;
                 }

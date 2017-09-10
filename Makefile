@@ -1,5 +1,5 @@
-obj-m += chatroom.o
-#obj-m += personal_chatroom.o
+#obj-m += chatroom.o
+obj-m += personal_chatroom.o
 
 all:
 	make -C ../linux-4.14.4-cs698z M=$(PWD) modules
