@@ -145,7 +145,7 @@ static ssize_t chatroom_write(struct file *filp,
                 return -EINVAL;
         }
         if (!flag_if_recv_process_exist && recv_length) {
-                printk(KERN_INFO "Recv process is not online\n");
+                printk(KERN_INFO "%s process is not online\n", buff + HANDLE_SIZE);
                 return -EINVAL;
         }
         tmp_message = (struct chatroom_message *)kmalloc(sizeof(struct chatroom_message), GFP_KERNEL);

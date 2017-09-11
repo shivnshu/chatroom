@@ -4,11 +4,13 @@
 #include<sys/fcntl.h>
 #include<sys/ioctl.h>
 #include<string.h>
+#include <time.h>
 
 #include "chatroom.h"
 
 char buf[2*HANDLE_SIZE + MESSAGE_SIZE];
 char handle[HANDLE_SIZE];
+char handles[MAX_ONLINE_PROCESSES][HANDLE_SIZE];
 char recv_handle[HANDLE_SIZE];
 
 int main(int argc, char **argv)
@@ -29,23 +31,49 @@ int main(int argc, char **argv)
 
         int i;
         int fd = open("/dev/chatroom", O_RDWR);
+        char msg[MESSAGE_SIZE];
         if (fd < 0) {
                 perror("open");
                 exit(-1);
         }
 
+        ioctl(fd, IOCTL_LOGIN, handle);
+
+        if (ioctl(fd, IOCTL_CHECKLOGIN, handles) < 0) {
+                perror("ioctl");
+        }
+
         strcpy(buf, handle);
         strcpy(buf+HANDLE_SIZE, recv_handle);
 
-        ioctl(fd, IOCTL_LOGIN, handle);
+        int flag = 0;
+        for (i=0;i<MAX_ONLINE_PROCESSES;++i) {
+                if (!strcmp(recv_handle, handles[i])) {
+                                flag = 1;
+                                break;
+                }
+        }
 
+        if (!flag && strlen(recv_handle)) {
+                printf("%s is not online\n", recv_handle);
+                ioctl(fd, IOCTL_LOGOUT, handle);
+                close(fd);
+                return 0;
+        }
+                                
+
+        if (!strlen(recv_handle))
+                strcpy(recv_handle, "ALL");
+        snprintf(msg, MESSAGE_SIZE, "Message to %s by %s at timestamp %lu", recv_handle, handle, (unsigned long)time(NULL));
         sleep(1);
-        strncpy(buf+2*HANDLE_SIZE, "asdfgh", MESSAGE_SIZE);
+
+        strncpy(buf+2*HANDLE_SIZE, msg, MESSAGE_SIZE);
         write(fd, buf, 2*HANDLE_SIZE+MESSAGE_SIZE);
         sleep(1);
+
         strncpy(buf+2*HANDLE_SIZE, "", MESSAGE_SIZE);
         read(fd, buf, 2*HANDLE_SIZE+MESSAGE_SIZE);
-        printf("%s %s %s\n", buf, buf+HANDLE_SIZE, buf+2*HANDLE_SIZE);
+        printf("%s\n", buf+2*HANDLE_SIZE);
 
 
         ioctl(fd, IOCTL_LOGOUT, handle);
