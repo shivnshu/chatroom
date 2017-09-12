@@ -9,8 +9,13 @@
 
 #define DEVNAME "chatroom"
 
+static long chatroom_ioctl(struct file *file,
+                            unsigned int ioctl_num,
+                            unsigned long arg);
+
 struct chatroom_process {
         char handle[HANDLE_SIZE];
+        pid_t pid;
         unsigned long last_msg_read_timestamp;
         unsigned long timestamp;
         struct list_head list;
@@ -38,6 +43,7 @@ static int chatroom_open(struct inode *inode, struct file *file)
 
 static int chatroom_release(struct inode *inode, struct file *file)
 {
+        chatroom_ioctl(file, IOCTL_LOGOUT, (unsigned long)NULL);
         module_put(THIS_MODULE);
         printk(KERN_INFO "Chatroom closed successfully\n");
         return 0;
@@ -56,7 +62,7 @@ static ssize_t chatroom_read(struct file *filp,
         down_write(&process_sem);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (!strcmp(buffer, tmp_process->handle)) {
+                if (current->pid == tmp_process->pid) {
                         flag = 1;
                         break;
                 }
@@ -87,9 +93,9 @@ static ssize_t chatroom_read(struct file *filp,
                 printk(KERN_INFO "No message left to read by %s\n", tmp_process->handle);
                 return -EINVAL;
         }
-        if (length > MESSAGE_SIZE + 2*HANDLE_SIZE)
-                length = MESSAGE_SIZE + 2*HANDLE_SIZE;
-        copy_to_user(buffer + 2*HANDLE_SIZE, tmp_message->message, length - 2*HANDLE_SIZE);
+        if (length > MESSAGE_SIZE)
+                length = MESSAGE_SIZE;
+        copy_to_user(buffer, tmp_message->message, length);
 
         flag = 1;
 
@@ -125,16 +131,18 @@ static ssize_t chatroom_write(struct file *filp,
         struct list_head *pos;
         struct chatroom_process *tmp_process;
         struct chatroom_message *tmp_message;
+        struct chatroom_process *current_process;
         int flag = 0;
         int flag_if_recv_process_exist = 0;
-        int recv_length = strlen(buff + HANDLE_SIZE);
+        int recv_length = strlen(buff);
         down_read(&process_sem);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (!strcmp(buff, tmp_process->handle)) {
+                if (current->pid == tmp_process->pid) {
                         flag = 1;
+                        current_process = tmp_process;
                 }
-                if (!strcmp(buff + HANDLE_SIZE, tmp_process->handle)) {
+                if (!strcmp(buff, tmp_process->handle)) {
                         flag_if_recv_process_exist = 1;
                 }
 
@@ -150,11 +158,11 @@ static ssize_t chatroom_write(struct file *filp,
         }
         tmp_message = (struct chatroom_message *)kmalloc(sizeof(struct chatroom_message), GFP_KERNEL);
         memset(tmp_message->message, 0, MESSAGE_SIZE);
-        if (length > MESSAGE_SIZE + 2*HANDLE_SIZE)
-                length = MESSAGE_SIZE + 2*HANDLE_SIZE;
-        copy_from_user(tmp_message->message, buff + 2*HANDLE_SIZE, length - 2*HANDLE_SIZE);
-        strcpy(tmp_message->send_handle, buff);
-        strcpy(tmp_message->recv_handle, buff + HANDLE_SIZE);
+        if (length > MESSAGE_SIZE + HANDLE_SIZE)
+                length = MESSAGE_SIZE + HANDLE_SIZE;
+        copy_from_user(tmp_message->message, buff + HANDLE_SIZE, length - HANDLE_SIZE);
+        strcpy(tmp_message->send_handle, current_process->handle);
+        strcpy(tmp_message->recv_handle, buff);
         tmp_message->timestamp = jiffies;
         down_write(&message_sem);
         list_add_tail(&(tmp_message->list), &(init_message.list)); // Implement Queue
@@ -169,6 +177,7 @@ static long chatroom_ioctl(struct file *file,
         struct list_head *pos, *next;
         struct chatroom_process *tmp_process;
         struct chatroom_message *tmp_message;
+        char handle[HANDLE_SIZE];
         int i = 0;
         int flag = 0;
         int count = 0;
@@ -193,6 +202,7 @@ static long chatroom_ioctl(struct file *file,
                         tmp_process = (struct chatroom_process *)kmalloc(sizeof(struct chatroom_process), GFP_KERNEL);
                         strncpy_from_user(tmp_process->handle, (char *)arg, HANDLE_SIZE);
                         tmp_process->timestamp = jiffies;
+                        tmp_process->pid = current->pid;
                         tmp_process->last_msg_read_timestamp = jiffies;
                         down_write(&process_sem);
                         list_add_tail(&(tmp_process->list), &(init_process.list));
@@ -204,8 +214,9 @@ static long chatroom_ioctl(struct file *file,
                         down_write(&process_sem);
                         list_for_each_safe(pos, next, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                                if (!strcmp(tmp_process->handle, (char *)arg)) {
+                                if (tmp_process->pid == current->pid) {
                                         flag = 1;
+                                        strcpy(handle, tmp_process->handle);
                                         list_del(pos);
                                         kfree(tmp_process);
                                         break;
@@ -228,7 +239,7 @@ static long chatroom_ioctl(struct file *file,
                                 up_write(&message_sem);
                         }
                         up_read(&process_sem);
-                        printk(KERN_INFO "Logout by handle %s\n", (char *)arg);
+                        printk(KERN_INFO "Logout by handle %s\n", handle);
                         retval = 0;
                         break;
                 case IOCTL_CHECKLOGIN:

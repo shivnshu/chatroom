@@ -8,7 +8,7 @@
 
 #include "chatroom.h"
 
-char buf[2*HANDLE_SIZE + MESSAGE_SIZE];
+char buf[HANDLE_SIZE + MESSAGE_SIZE];
 char handle[HANDLE_SIZE];
 char handles[MAX_ONLINE_PROCESSES][HANDLE_SIZE];
 char recv_handle[HANDLE_SIZE];
@@ -43,8 +43,7 @@ int main(int argc, char **argv)
                 perror("ioctl");
         }
 
-        strcpy(buf, handle);
-        strcpy(buf+HANDLE_SIZE, recv_handle);
+        strcpy(buf, recv_handle);
 
         int flag = 0;
         for (i=0;i<MAX_ONLINE_PROCESSES;++i) {
@@ -64,19 +63,18 @@ int main(int argc, char **argv)
 
         if (!strlen(recv_handle))
                 strcpy(recv_handle, "ALL");
-        snprintf(msg, MESSAGE_SIZE, "Message to %s by %s at timestamp %lu", recv_handle, handle, (unsigned long)time(NULL));
+        snprintf(buf + HANDLE_SIZE, MESSAGE_SIZE, "Message to %s by %s at timestamp %lu", recv_handle, handle, (unsigned long)time(NULL));
         sleep(1);
 
-        strncpy(buf+2*HANDLE_SIZE, msg, MESSAGE_SIZE);
-        write(fd, buf, 2*HANDLE_SIZE+MESSAGE_SIZE);
+        write(fd, buf, HANDLE_SIZE + MESSAGE_SIZE);
         sleep(1);
 
-        strncpy(buf+2*HANDLE_SIZE, "", MESSAGE_SIZE);
-        read(fd, buf, 2*HANDLE_SIZE+MESSAGE_SIZE);
-        printf("%s\n", buf+2*HANDLE_SIZE);
+        strcpy(buf, "");
+        read(fd, buf, HANDLE_SIZE + MESSAGE_SIZE);
+        printf("%s\n", buf);
 
 
-        ioctl(fd, IOCTL_LOGOUT, handle);
+        ioctl(fd, IOCTL_LOGOUT, NULL);
         close(fd);
         return 0;
 }

@@ -9,6 +9,10 @@
 
 #define DEVNAME "chatroom"
 
+static long chatroom_ioctl(struct file *file,
+                            unsigned int ioctl_num,
+                            unsigned long arg);
+
 struct chatroom_process {
         char handle[HANDLE_SIZE];
         pid_t pid;
@@ -38,18 +42,7 @@ static int chatroom_open(struct inode *inode, struct file *file)
 
 static int chatroom_release(struct inode *inode, struct file *file)
 {
-        struct chatroom_process *tmp_process;
-        struct list_head *pos, *next;
-        down_write(&process_sem);
-        list_for_each_safe (pos, next, &init_process.list) {
-                tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (tmp_process->pid == current->pid) {
-                        list_del(pos);
-                        kfree(tmp_process);
-                        break;
-                }
-        }
-        up_write(&process_sem);
+        chatroom_ioctl(file, IOCTL_LOGOUT, (unsigned long)NULL);
         module_put(THIS_MODULE);
         printk(KERN_INFO "Chatroom closed successfully\n");
         return 0;
