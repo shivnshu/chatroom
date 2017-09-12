@@ -5,7 +5,7 @@
 #include<linux/slab.h>
 #include<linux/uaccess.h>
 
-#include "chatroom.h"
+#include "../chatroom.h"
 
 #define DEVNAME "chatroom"
 

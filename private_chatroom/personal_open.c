@@ -6,7 +6,7 @@
 #include<string.h>
 #include <time.h>
 
-#include "chatroom.h"
+#include "../chatroom.h"
 
 char buf[HANDLE_SIZE + MESSAGE_SIZE];
 char handle[HANDLE_SIZE];
