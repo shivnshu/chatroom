@@ -196,7 +196,7 @@ static long chatroom_ioctl(struct file *file,
         switch(ioctl_num){
                 case IOCTL_LOGIN:
                         strncpy(handle, (char *)arg, HANDLE_SIZE);
-                        strncpy(identifier, (char *)(arg + (HANDLE_SIZE/sizeof(long))), IDENTIFIER_SIZE);
+                        strncpy(identifier, (char *)(arg + HANDLE_SIZE), IDENTIFIER_SIZE);
                         down_read(&process_sem);
                         list_for_each(pos, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
@@ -222,7 +222,6 @@ static long chatroom_ioctl(struct file *file,
                         up_read(&record_sem);
                         if (!flag) {
                                 printk(KERN_INFO "Handle identifier pair does not match\n");
-                                retval = 0;
                                 break;
                         }
                         tmp_process = (struct chatroom_process *)kmalloc(sizeof(struct chatroom_process), GFP_KERNEL);
@@ -290,7 +289,7 @@ static long chatroom_ioctl(struct file *file,
                 case IOCTL_CA_REGISTER:
                         flag = 0;
                         strncpy(handle, (char *)(arg), HANDLE_SIZE);
-                        strncpy(identifier, (char *)(arg+(HANDLE_SIZE/sizeof(long))), IDENTIFIER_SIZE);
+                        strncpy(identifier, (char *)(arg+HANDLE_SIZE), IDENTIFIER_SIZE);
                         down_read(&record_sem);
                         list_for_each (pos, &init_record.list) {
                                 tmp_record = list_entry(pos, struct ca_record, list);

@@ -9,25 +9,26 @@
 #include "../chatroom.h"
 
 char buf[HANDLE_SIZE + MESSAGE_SIZE];
-char handle[HANDLE_SIZE];
+char handle_credential[HANDLE_SIZE + IDENTIFIER_SIZE];
 char handles[MAX_ONLINE_PROCESSES][HANDLE_SIZE];
 char recv_handle[HANDLE_SIZE];
 
 int main(int argc, char **argv)
 {
-        if (argc < 2) {
-                printf("Usage: ./bin <handle> [<recv_handle>]");
+        if (argc < 3) {
+                printf("Usage: ./bin <handle> <handle_identifier> [<recv_handle>]");
                 return 0;
-        } else if (argc == 2) {
-                strcpy(recv_handle, "\0");
         } else if (argc == 3) {
-                strncpy(recv_handle, argv[2], HANDLE_SIZE);
+                strcpy(recv_handle, "\0");
+        } else if (argc == 4) {
+                strncpy(recv_handle, argv[3], HANDLE_SIZE);
         } else {
                 printf("No. of args are more than 3 \n");
                 return 0;
         }
   
-        strncpy(handle, argv[1], HANDLE_SIZE);
+        strncpy(handle_credential, argv[1], HANDLE_SIZE);
+        strncpy(handle_credential + HANDLE_SIZE, argv[2], IDENTIFIER_SIZE);
 
         int i;
         int fd = open("/dev/chatroom", O_RDWR);
@@ -37,7 +38,10 @@ int main(int argc, char **argv)
                 exit(-1);
         }
 
-        ioctl(fd, IOCTL_LOGIN, handle);
+        if (ioctl(fd, IOCTL_LOGIN, handle_credential) < 0) {
+                printf("Wrong credentials\n");
+                exit(0);
+        }
 
         if (ioctl(fd, IOCTL_CHECKLOGIN, handles) < 0) {
                 perror("ioctl");
@@ -55,7 +59,7 @@ int main(int argc, char **argv)
 
         if (!flag && strlen(recv_handle)) {
                 printf("%s is not online\n", recv_handle);
-                ioctl(fd, IOCTL_LOGOUT, handle);
+                ioctl(fd, IOCTL_LOGOUT, NULL);
                 close(fd);
                 return 0;
         }
@@ -63,7 +67,7 @@ int main(int argc, char **argv)
 
         if (!strlen(recv_handle))
                 strcpy(recv_handle, "ALL");
-        snprintf(buf + HANDLE_SIZE, MESSAGE_SIZE, "Message to %s by %s at timestamp %lu", recv_handle, handle, (unsigned long)time(NULL));
+        snprintf(buf + HANDLE_SIZE, MESSAGE_SIZE, "Message to %s by %s at timestamp %lu", recv_handle, handle_credential, (unsigned long)time(NULL));
         sleep(1);
 
         write(fd, buf, HANDLE_SIZE + MESSAGE_SIZE);
