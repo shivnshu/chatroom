@@ -11,6 +11,7 @@
 
 struct chatroom_process {
         char handle[HANDLE_SIZE];
+        pid_t pid;
         unsigned long last_msg_read_timestamp;
         unsigned long timestamp;
         struct list_head list;
@@ -37,6 +38,18 @@ static int chatroom_open(struct inode *inode, struct file *file)
 
 static int chatroom_release(struct inode *inode, struct file *file)
 {
+        struct chatroom_process *tmp_process;
+        struct list_head *pos, *next;
+        down_write(&process_sem);
+        list_for_each_safe (pos, next, &init_process.list) {
+                tmp_process = list_entry(pos, struct chatroom_process, list);
+                if (tmp_process->pid == current->pid) {
+                        list_del(pos);
+                        kfree(tmp_process);
+                        break;
+                }
+        }
+        up_write(&process_sem);
         module_put(THIS_MODULE);
         printk(KERN_INFO "Chatroom closed successfully\n");
         return 0;
@@ -54,7 +67,7 @@ static ssize_t chatroom_read(struct file *filp,
         down_write(&process_sem);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (!strcmp(buffer, tmp_process->handle)) {
+                if (current->pid == tmp_process->pid) {
                         flag = 1;
                         break;
                 }
@@ -83,9 +96,9 @@ static ssize_t chatroom_read(struct file *filp,
                 printk(KERN_INFO "No message left to read by %s\n", tmp_process->handle);
                 return -EINVAL;
         }
-        if (length > MESSAGE_SIZE + HANDLE_SIZE)
-                length = MESSAGE_SIZE + HANDLE_SIZE;
-        copy_to_user(buffer+HANDLE_SIZE, tmp_message->message, length - HANDLE_SIZE);
+        if (length > MESSAGE_SIZE)
+                length = MESSAGE_SIZE;
+        copy_to_user(buffer, tmp_message->message, length);
 
 
         flag = 1;
@@ -123,7 +136,7 @@ static ssize_t chatroom_write(struct file *filp,
         down_read(&process_sem);
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                if (!strcmp(buff, tmp_process->handle)) {
+                if (current->pid == tmp_process->pid) {
                         flag = 1;
                         break;
                 }
@@ -136,9 +149,9 @@ static ssize_t chatroom_write(struct file *filp,
         }
         tmp_message = (struct chatroom_message *)kmalloc(sizeof(struct chatroom_message), GFP_KERNEL);
         memset(tmp_message->message, 0, MESSAGE_SIZE);
-        if (length > MESSAGE_SIZE + HANDLE_SIZE)
-                length = MESSAGE_SIZE + HANDLE_SIZE;
-        copy_from_user(tmp_message->message, buff + HANDLE_SIZE, length - HANDLE_SIZE);
+        if (length > MESSAGE_SIZE)
+                length = MESSAGE_SIZE;
+        copy_from_user(tmp_message->message, buff, length);
         strncpy(tmp_message->handle, tmp_process->handle, HANDLE_SIZE);
         up_read(&process_sem);
         tmp_message->timestamp = jiffies;
@@ -180,6 +193,7 @@ static long chatroom_ioctl(struct file *file,
                         tmp_process = (struct chatroom_process *)kmalloc(sizeof(struct chatroom_process), GFP_KERNEL);
                         strncpy_from_user(tmp_process->handle, (char *)arg, HANDLE_SIZE);
                         tmp_process->timestamp = jiffies;
+                        tmp_process->pid = current->pid;
                         tmp_process->last_msg_read_timestamp = jiffies;
                         down_write(&message_sem);
                         list_add_tail(&(tmp_process->list), &(init_process.list));
@@ -191,7 +205,7 @@ static long chatroom_ioctl(struct file *file,
                         down_write(&process_sem);
                         list_for_each_safe(pos, next, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
-                                if (!strcmp(tmp_process->handle, (char *)arg)) {
+                                if (tmp_process->pid == current->pid) {
                                         flag = 1;
                                         list_del(pos);
                                         kfree(tmp_process);

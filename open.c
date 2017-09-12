@@ -8,7 +8,7 @@
 
 #include "chatroom.h"
 
-char buf[HANDLE_SIZE + MESSAGE_SIZE];
+char buf[MESSAGE_SIZE];
 
 int main(int argc, char **argv)
 {
@@ -17,7 +17,6 @@ int main(int argc, char **argv)
                 return 0;
         }
         int i;
-        char msg[MESSAGE_SIZE];
         char handle[HANDLE_SIZE];
         int fd = open("/dev/chatroom", O_RDWR);
         if (fd < 0) {
@@ -26,20 +25,18 @@ int main(int argc, char **argv)
         }
 
         strncpy(handle, argv[1], HANDLE_SIZE);
-        strncpy(buf, handle, HANDLE_SIZE);
 
         ioctl(fd, IOCTL_LOGIN, handle);
 
         sleep(5);
-        snprintf(msg, MESSAGE_SIZE, "Public message by %s at timestamp %lu", handle, (unsigned long)time(NULL));
-        strncpy(buf + HANDLE_SIZE, msg, MESSAGE_SIZE);
-        write(fd, buf, HANDLE_SIZE + MESSAGE_SIZE);
+        snprintf(buf, MESSAGE_SIZE, "Public message by %s at timestamp %lu", handle, (unsigned long)time(NULL));
+        write(fd, buf, MESSAGE_SIZE);
         sleep(5);
-        read(fd, buf, HANDLE_SIZE + MESSAGE_SIZE);
-        printf("%s\n", buf + HANDLE_SIZE);
+        read(fd, buf, MESSAGE_SIZE);
+        printf("%s\n", buf);
 
 
-        ioctl(fd, IOCTL_LOGOUT, handle);
+        ioctl(fd, IOCTL_LOGOUT, NULL);
         close(fd);
         return 0;
 }
