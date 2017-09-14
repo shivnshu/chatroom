@@ -16,7 +16,7 @@ static long chatroom_ioctl(struct file *file,
 struct chatroom_process {
         char handle[HANDLE_SIZE];
         pid_t pid;
-        unsigned long last_msg_read_timestamp;
+        unsigned long last_msg_read_timestamp; // last msg read timestamp
         unsigned long timestamp;
         struct list_head list;
 };
@@ -24,8 +24,9 @@ struct chatroom_process init_process;
 
 struct chatroom_message {
         char message[MESSAGE_SIZE];
-        char send_handle[HANDLE_SIZE];
-        char recv_handle[HANDLE_SIZE];
+        char send_handle[HANDLE_SIZE]; // handle of process who send it
+        // If recv_handle is empty => Public message to all online processes
+        char recv_handle[HANDLE_SIZE]; // handle of process who will receive it
         unsigned long timestamp;
         struct list_head list;
 };
@@ -43,6 +44,7 @@ static int chatroom_open(struct inode *inode, struct file *file)
 
 static int chatroom_release(struct inode *inode, struct file *file)
 {
+        // Logout process in case of crash or process does not call LogOut before dying
         chatroom_ioctl(file, IOCTL_LOGOUT, (unsigned long)NULL);
         module_put(THIS_MODULE);
         printk(KERN_INFO "Chatroom closed successfully\n");
@@ -60,6 +62,7 @@ static ssize_t chatroom_read(struct file *filp,
         int flag = 0;
         int recv_length;
         down_write(&process_sem);
+        // Get ptr to caller process from online list of processes
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
                 if (current->pid == tmp_process->pid) {
@@ -76,6 +79,8 @@ static ssize_t chatroom_read(struct file *filp,
         flag = 0;
 
         down_write(&message_sem);
+        // Iterate through all elements of messages list, and try to match recv_handle to caller process
+        // If strlen(recv_handle) == 0 => public message
         list_for_each(pos, &init_message.list) {
                 tmp_message = list_entry(pos, struct chatroom_message, list);
                 recv_length = strlen(tmp_message->recv_handle);
@@ -99,6 +104,7 @@ static ssize_t chatroom_read(struct file *filp,
 
         flag = 1;
 
+        // If message was public, check if there is no online process which hasn't read this message
         if (!recv_length) {
                 down_read(&process_sem);
                 list_for_each(pos, &init_process.list) {
@@ -114,6 +120,7 @@ static ssize_t chatroom_read(struct file *filp,
                         kfree(tmp_message);
                 }
         } else {
+                // If message was private, delete it regardless
                 list_del(&tmp_message->list);
                 kfree(tmp_message);
         }
@@ -123,6 +130,8 @@ static ssize_t chatroom_read(struct file *filp,
 
 }
 
+// Initial HANDLE_SIZE bytes of the buff contains the recv_handle
+// Message string starts from HANDLE_SIZE index of buff
 static ssize_t chatroom_write(struct file *filp,
                                 const char *buff,
                                 size_t length,
@@ -136,6 +145,7 @@ static ssize_t chatroom_write(struct file *filp,
         int flag_if_recv_process_exist = 0;
         int recv_length = strlen(buff);
         down_read(&process_sem);
+        // Check if both caller process and recv_process is online, if not exit
         list_for_each(pos, &init_process.list) {
                 tmp_process = list_entry(pos, struct chatroom_process, list);
                 if (current->pid == tmp_process->pid) {
@@ -152,6 +162,7 @@ static ssize_t chatroom_write(struct file *filp,
                 printk(KERN_INFO "Process is not logged in\n");
                 return -EINVAL;
         }
+        // If msg is public, no need to check for recv_process
         if (!flag_if_recv_process_exist && recv_length) {
                 printk(KERN_INFO "%s process is not online\n", buff + HANDLE_SIZE);
                 return -EINVAL;
@@ -160,11 +171,13 @@ static ssize_t chatroom_write(struct file *filp,
         memset(tmp_message->message, 0, MESSAGE_SIZE);
         if (length > MESSAGE_SIZE + HANDLE_SIZE)
                 length = MESSAGE_SIZE + HANDLE_SIZE;
+        // Fill up the newly allocated message struct 
         copy_from_user(tmp_message->message, buff + HANDLE_SIZE, length - HANDLE_SIZE);
         strcpy(tmp_message->send_handle, current_process->handle);
         strcpy(tmp_message->recv_handle, buff);
         tmp_message->timestamp = jiffies;
         down_write(&message_sem);
+        // Add this msg to linked list
         list_add_tail(&(tmp_message->list), &(init_message.list)); // Implement Queue
         up_write(&message_sem);
         return length;
@@ -186,6 +199,7 @@ static long chatroom_ioctl(struct file *file,
         switch(ioctl_num){
                 case IOCTL_LOGIN:
                         down_read(&process_sem);
+                        // Ensure that no process with same handle is online
                         list_for_each(pos, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
                                 if (!strcmp(tmp_process->handle, (char*)arg)) {
@@ -199,6 +213,7 @@ static long chatroom_ioctl(struct file *file,
                                 retval = 0;
                                 break;
                         }
+                        // Allocate new chatroom_process struct and fill up its data
                         tmp_process = (struct chatroom_process *)kmalloc(sizeof(struct chatroom_process), GFP_KERNEL);
                         strncpy_from_user(tmp_process->handle, (char *)arg, HANDLE_SIZE);
                         tmp_process->timestamp = jiffies;
@@ -212,6 +227,7 @@ static long chatroom_ioctl(struct file *file,
                         break;
                 case IOCTL_LOGOUT:
                         down_write(&process_sem);
+                        // Ensure that caller process is online
                         list_for_each_safe(pos, next, &init_process.list) {
                                 tmp_process = list_entry(pos, struct chatroom_process, list);
                                 if (tmp_process->pid == current->pid) {
@@ -229,6 +245,7 @@ static long chatroom_ioctl(struct file *file,
                                 break;
                         }
                         down_read(&process_sem);
+                        // Delete all messages if no process is online
                         if (list_empty(&init_process.list)) {
                                 down_write(&message_sem);
                                 list_for_each_safe(pos, next, &init_message.list) {
@@ -243,6 +260,7 @@ static long chatroom_ioctl(struct file *file,
                         retval = 0;
                         break;
                 case IOCTL_CHECKLOGIN:
+                        // Fill user supplied buffer with all online processes handles
                         tmp = (char **)arg;
                         down_read(&process_sem);
                         list_for_each(pos, &init_process.list) {
@@ -254,6 +272,7 @@ static long chatroom_ioctl(struct file *file,
                         retval = 0;
                         break;
                 case IOCTL_NUMMSG:
+                        // Return no. of messages remaining (for debug purpose)
                         down_read(&message_sem);
                         list_for_each(pos, &init_message.list) {
                                 count += 1;
@@ -288,9 +307,11 @@ int init_module(void)
         printk(KERN_INFO "I was assigned major number %d. To talk to\n", DEV_MAJOR);
         printk(KERN_INFO "'mknod /dev/%s c %d 0'.\n", DEVNAME, DEV_MAJOR);
 
+        // Linked lists initialisation
         INIT_LIST_HEAD(&init_process.list);
         INIT_LIST_HEAD(&init_message.list);
 
+        // r/w semaphores initialisation
         init_rwsem(&process_sem);
         init_rwsem(&message_sem);
 
