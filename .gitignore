@@ -9,6 +9,10 @@
 #
 # Normal rules
 #
+#
+# Emacs
+*~
+*/*~
 *.out
 */*.out
 .*

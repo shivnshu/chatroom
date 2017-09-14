@@ -3,7 +3,7 @@ obj-m += private_chatroom/personal_chatroom.o
 obj-m += private_chatroom_with_ca/personal_chatroom_ca.o
 
 all:
-	make -C ../linux-4.14.4-cs698z M=$(PWD) modules
+	make -C /lib/modules/`uname -r`/build M=$(PWD) modules
 
 clean:
-	make -C ../linux-4.14.4-cs698z M=$(PWD) clean
+	make -C /lib/modules/`uname -r`/build M=$(PWD) clean
